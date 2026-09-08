@@ -12,7 +12,8 @@ import assets.SpriteAnimation;
 import assets.SpriteSheet;
 
 /**
- * Guybrush with front/back/left/right walks (alibi-3D): depth changes scale.
+ * Guybrush with front/back/left/right walks. Position is foot contact on the
+ * walkable floor from {@link WalkBounds}.
  */
 public class Guybrush {
 	public enum Facing {
@@ -31,25 +32,28 @@ public class Guybrush {
 	}
 
 	private static final int WALK_FRAME_MS = 100;
-	private static final double MOVE_SPEED = 4;
-	private static final double DEPTH_SPEED = 0.9;
-	private static final double MIN_SCALE = 1;
-	private static final double MAX_SCALE = 3;
+	private static final double MOVE_SPEED = 5;
+	private static final double DEPTH_SPEED = 2.5;
+	/** Sprite is 64×96; keep on-screen size comparable to barrels/stove. */
+	private static final double MIN_SCALE = 3;
+	private static final double MAX_SCALE = 5;
 
 	private final Map<Facing, SpriteAnimation> walks = new EnumMap<>(Facing.class);
 	private final Map<Facing, BufferedImage> idles = new EnumMap<>(Facing.class);
-
-	private double x;
-	/** Depth on the ground plane: 0 = far (small), 1 = near (large). */
-	private double depth = 0.55;
-	private Facing facing = Facing.FRONT;
-	private boolean moving;
+	private final WalkBounds bounds;
 	private final int baseWidth;
 	private final int baseHeight;
-	private final double groundY;
 
-	public Guybrush(double startX, double groundY) {
-		this.groundY = groundY;
+	/** Foot position in screen pixels (bottom-center of the sprite). */
+	private double footX;
+	private double footY;
+	private Facing facing = Facing.FRONT;
+	private boolean moving;
+
+	public Guybrush(WalkBounds bounds, double footX, double footY) {
+		this.bounds = bounds;
+		this.footX = footX;
+		this.footY = footY;
 		int refW = 0;
 		int refH = 0;
 		BufferedImage sideIdle = ImageLoader.keyWhiteAndTeal(ImageLoader.byFile(ResourceRoot.guybrushSideIdle()));
@@ -80,7 +84,6 @@ public class Guybrush {
 		}
 		baseWidth = refW;
 		baseHeight = refH;
-		this.x = startX;
 	}
 
 	/**
@@ -122,45 +125,61 @@ public class Guybrush {
 		}
 	}
 
-	public void update(int minX, int maxX, double minDepth, double maxDepth) {
+	public void update(int screenW, int screenH) {
 		if (!moving) {
 			return;
 		}
+		// Screen-space speed tracks sprite scale so far/near feel like constant world speed.
+		double speedScale = scale(screenW, screenH) / MIN_SCALE;
+		double move = MOVE_SPEED * speedScale;
+		double depth = DEPTH_SPEED * speedScale;
+		double nx = footX;
+		double ny = footY;
 		switch (facing) {
-		case LEFT -> x -= MOVE_SPEED;
-		case RIGHT -> x += MOVE_SPEED;
-		case BACK -> depth -= DEPTH_SPEED / 100.0;
-		case FRONT -> depth += DEPTH_SPEED / 100.0;
+		case LEFT -> nx -= move;
+		case RIGHT -> nx += move;
+		case BACK -> ny -= depth;
+		case FRONT -> ny += depth;
 		}
-		depth = Math.max(minDepth, Math.min(maxDepth, depth));
-		double drawW = baseWidth * scale();
-		x = Math.max(minX, Math.min(maxX - drawW, x));
-		walks.get(facing).update();
+
+		if (tryMove(nx, ny, screenW, screenH)) {
+			walks.get(facing).update();
+			return;
+		}
+		// Slide along the boundary when blocked on one axis.
+		if (tryMove(nx, footY, screenW, screenH) || tryMove(footX, ny, screenW, screenH)) {
+			walks.get(facing).update();
+		}
 	}
 
-	private double scale() {
-		return MIN_SCALE + (MAX_SCALE - MIN_SCALE) * depth;
+	private boolean tryMove(double nx, double ny, int screenW, int screenH) {
+		if (bounds.isWalkable(nx, ny, screenW, screenH)) {
+			footX = nx;
+			footY = ny;
+			return true;
+		}
+		return false;
 	}
 
-	public void draw(Graphics g) {
-		double scale = scale();
+	private double scale(int screenW, int screenH) {
+		// Depth from foot Y only (not local boundary at X), so left/right keeps size.
+		double far = bounds.farthestScreenY(screenH);
+		double span = Math.max(1.0, screenH - far);
+		double t = (footY - far) / span;
+		t = Math.max(0.0, Math.min(1.0, t));
+		return MIN_SCALE + (MAX_SCALE - MIN_SCALE) * t;
+	}
+
+	public void draw(Graphics g, int screenW, int screenH) {
+		double scale = scale(screenW, screenH);
 		int drawW = Math.max(1, (int) Math.round(baseWidth * scale));
 		int drawH = Math.max(1, (int) Math.round(baseHeight * scale));
-		double groundAtDepth = groundY - (1.0 - depth) * (groundY * 0.35);
-		int drawX = (int) Math.round(x);
-		int drawY = (int) Math.round(groundAtDepth - drawH);
+		int drawX = (int) Math.round(footX - drawW / 2.0);
+		int drawY = (int) Math.round(footY - drawH);
 
 		BufferedImage frame = moving ? walks.get(facing).currentFrame() : idles.get(facing);
 		if (frame != null) {
 			g.drawImage(frame, drawX, drawY, drawW, drawH, null);
 		}
-	}
-
-	public int getDrawWidth() {
-		return (int) Math.round(baseWidth * scale());
-	}
-
-	public int getDrawHeight() {
-		return (int) Math.round(baseHeight * scale());
 	}
 }

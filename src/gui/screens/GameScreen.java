@@ -19,10 +19,12 @@ import game.GameFonts;
 import game.GameRoot;
 import game.Guybrush;
 import game.Screens;
+import game.WalkBounds;
 import gui.GamePanel;
 
-/** Playable area: WASD / arrows for alibi-3D walk (front/back/left/right). */
+/** Playable area: WASD / arrows; movement clamped to the red walk bounds. */
 public class GameScreen extends GamePanel {
+	private final WalkBounds walkBounds;
 	private final Guybrush guybrush;
 	private boolean left, right, up, down;
 
@@ -34,7 +36,9 @@ public class GameScreen extends GamePanel {
 		setBackgroundImage(ImageLoader.byFile(ResourceRoot.picture("Background_closed.jpg")));
 		setForegroundImage(ImageLoader.byFile(ResourceRoot.picture("Foreground.png")));
 
-		guybrush = new Guybrush(dimension.width / 2.0 - 40, dimension.height - 36);
+		walkBounds = new WalkBounds();
+		double[] spawn = walkBounds.defaultSpawn(dimension.width, dimension.height);
+		guybrush = new Guybrush(walkBounds, spawn[0], spawn[1]);
 
 		JLabel back = new JLabel("Back", SwingConstants.CENTER);
 		back.setFont(GameFonts.display(Math.max(28, dimension.height / 16f)));
@@ -110,10 +114,12 @@ public class GameScreen extends GamePanel {
 	@Override
 	protected void paintComponent(Graphics g) {
 		paintBackground(g);
-		
-		guybrush.update(0, getWidth(), 0.15, 1.0);
-		guybrush.draw(g);
-		
+
+		walkBounds.drawDebug(g, getWidth(), getHeight());
+
+		guybrush.update(getWidth(), getHeight());
+		guybrush.draw(g, getWidth(), getHeight());
+
 		paintForeground(g);
 	}
 }
